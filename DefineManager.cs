@@ -15,6 +15,7 @@ using System.Text;
 public class DefineManager : EditorWindow
 {
 	const string DEF_MANAGER_PATH = "Assets/Editor/DefineManager.cs";
+	const string CSCODE_PATH = "Assets/";
 	
 	enum Compiler
 	{
@@ -34,9 +35,13 @@ public class DefineManager : EditorWindow
 	const string BOO_PATH 			= "Assets/boo.rsp";
 
 	List<string> csDefines = new List<string>(); 
+	List<string> csOtherDefines = new List<string>();
 	List<string> booDefines = new List<string>(); 
+	List<string> booOtherDefines = new List<string>();
 	List<string> usDefines = new List<string>(); 
+	List<string> usOtherDefines = new List<string>();
 	List<string> editorDefines = new List<string>(); 
+	List<string> editorOtherDefines = new List<string>();
 
 	[MenuItem("Window/Define Manager")]
 	public static void OpenDefManager()
@@ -46,13 +51,15 @@ public class DefineManager : EditorWindow
 
 	void OnEnable()
 	{
-		csDefines = ParseRspFile(CSHARP_PATH);
-		usDefines = ParseRspFile(UNITYSCRIPT_PATH);
-		booDefines = ParseRspFile(BOO_PATH);
-		editorDefines = ParseRspFile(EDITOR_PATH);
+		csDefines = ParseRspFile(CSHARP_PATH, ref csOtherDefines);
+		usDefines = ParseRspFile(UNITYSCRIPT_PATH, ref usOtherDefines);
+		booDefines = ParseRspFile(BOO_PATH, ref booOtherDefines);
+		editorDefines = ParseRspFile(EDITOR_PATH, ref editorOtherDefines);
 	}
 
 	List<string> defs;
+	List<string> otherDefs;
+	
 	Vector2 scroll = Vector2.zero;
 	void OnGUI()
 	{
@@ -89,18 +96,22 @@ public class DefineManager : EditorWindow
 		{
 			case Compiler.CSharp:
 				defs = csDefines;
+				otherDefs = csOtherDefines;
 				break;
 
 			case Compiler.Editor:
 				defs = editorDefines;
+				otherDefs = editorOtherDefines;
 				break;
 
 			case Compiler.UnityScript:
 				defs = usDefines;
+				otherDefs = usOtherDefines;
 				break;
 
 			case Compiler.Boo:
 				defs = booDefines;
+				otherDefs = booOtherDefines;
 				break;
 		}
 
@@ -137,17 +148,21 @@ public class DefineManager : EditorWindow
 			{
 				SetDefines(compiler, defs);
 				AssetDatabase.ImportAsset(DEF_MANAGER_PATH, ImportAssetOptions.ForceUpdate);
+				AssetDatabase.ImportAsset(CSCODE_PATH, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ImportRecursive);
 				OnEnable();
 			}
 
 			GUI.backgroundColor = Color.red;
 			if(GUILayout.Button("Apply All", GUILayout.MaxWidth(64)))
+			{
 				for(int i = 0; i < COMPILER_COUNT; i++)
 				{
 					SetDefines((Compiler)i, defs);
 					AssetDatabase.ImportAsset(DEF_MANAGER_PATH, ImportAssetOptions.ForceUpdate);
 					OnEnable();
 				}
+				AssetDatabase.ImportAsset(CSCODE_PATH, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ImportRecursive);
+			}
 		
 		GUILayout.EndHorizontal();
 		GUI.backgroundColor = oldColor;
@@ -158,27 +173,31 @@ public class DefineManager : EditorWindow
 		switch(compiler)
 		{
 			case Compiler.CSharp:
-				WriteDefines(CSHARP_PATH, defs);
+				WriteDefines(CSHARP_PATH, defs, otherDefs);
 				break;
 
 			case Compiler.UnityScript:
-				WriteDefines(UNITYSCRIPT_PATH, defs);
+				WriteDefines(UNITYSCRIPT_PATH, defs, otherDefs);
 				break;
 			
 			case Compiler.Boo:
-				WriteDefines(BOO_PATH, defs);
+				WriteDefines(BOO_PATH, defs, otherDefs);
 				break;
 
 			case Compiler.Editor:
-				WriteDefines(EDITOR_PATH, defs);
+				WriteDefines(EDITOR_PATH, defs, otherDefs);
 				break;
 		}
 	}
 
-	List<string> ParseRspFile(string path)
+	List<string> ParseRspFile(string path, ref List<string> otherdefs)
 	{
+		otherdefs.Clear();
+		
 		if(!File.Exists(path))
+		{
 			return new List<string>();
+		}
 
 		string[] lines = File.ReadAllLines(path);
 		List<string> defs = new List<string>();
@@ -187,16 +206,25 @@ public class DefineManager : EditorWindow
 		{
 			if(cheese.StartsWith("-define:"))
 			{
-				defs.AddRange( cheese.Replace("-define:", "").Split(';') );
+				string[] macrodefs = cheese.Replace("-define:", "").Split(';');
+				foreach(string macro in macrodefs)
+				{
+					if(! string.IsNullOrEmpty(macro.Trim()))
+						defs.Add(macro.Trim());
+				}
+			}
+			else
+			{
+				otherdefs.Add(cheese);
 			}
 		}
 
 		return defs;
 	}
 
-	void WriteDefines(string path, List<string> defs)
+	void WriteDefines(string path, List<string> defs, List<string> otherdefs)
 	{
-		if(defs.Count < 1 && File.Exists(path))
+		if(defs.Count < 1 && File.Exists(path) && otherdefs.Count < 1)
 		{
 			File.Delete(path);
 		
@@ -208,12 +236,16 @@ public class DefineManager : EditorWindow
 		}
 
 		StringBuilder sb = new StringBuilder();
-		sb.Append("-define:");
 		
 		for(int i = 0; i < defs.Count; i++)
 		{
-			sb.Append(defs[i]);
-			if(i < defs.Count-1) sb.Append(";");
+			sb.AppendLine("-define:" + defs[i] + ";");
+		}
+		
+//		sb.AppendLine("");
+		for(int i = 0; i < otherdefs.Count; i++)
+		{
+			sb.AppendLine(otherdefs[i]);
 		}
 
 		using (StreamWriter writer = new StreamWriter(path, false))
